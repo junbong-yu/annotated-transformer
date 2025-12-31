@@ -129,6 +129,7 @@ from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torchtext.datasets import multi30k
 
 
 # Set to False to skip notebook execution (e.g. for debugging)
@@ -1424,7 +1425,13 @@ def yield_tokens(data_iter, tokenizer, index):
 
 
 # %% id="jU3kVlV5okC-" tags=[]
+multi30k.URL["train"] = "https://raw.githubusercontent.com/neychev/small_DL_repo/master/datasets/Multi30k/training.tar.gz"
+multi30k.URL["valid"] = "https://raw.githubusercontent.com/neychev/small_DL_repo/master/datasets/Multi30k/validation.tar.gz"
+multi30k.URL["test"] = "https://raw.githubusercontent.com/neychev/small_DL_repo/master/datasets/Multi30k/mmt16_task1_test.tar.gz"
 
+multi30k.MD5["train"] = "20140d013d05dd9a72dfde46478663ba05737ce983f478f960c1123c6671be5e"
+multi30k.MD5["valid"] = "a7aa20e9ebd5ba5adce7909498b94410996040857154dab029851af3a866da8c"
+multi30k.MD5["test"] = "6d1ca1dba99e2c5dd54cae1226ff11c2551e6ce63527ebb072a1f70f72a5cd36"
 
 def build_vocabulary(spacy_de, spacy_en):
     def tokenize_de(text):
@@ -1434,7 +1441,7 @@ def build_vocabulary(spacy_de, spacy_en):
         return tokenize(text, spacy_en)
 
     print("Building German Vocabulary ...")
-    train, val, test = datasets.Multi30k(language_pair=("de", "en"))
+    train, val, test = multi30k.Multi30k(language_pair=("de", "en"))
     vocab_src = build_vocab_from_iterator(
         yield_tokens(train + val + test, tokenize_de, index=0),
         min_freq=2,
@@ -1442,7 +1449,7 @@ def build_vocabulary(spacy_de, spacy_en):
     )
 
     print("Building English Vocabulary ...")
-    train, val, test = datasets.Multi30k(language_pair=("de", "en"))
+    train, val, test = multi30k.Multi30k(language_pair=("de", "en"))
     vocab_tgt = build_vocab_from_iterator(
         yield_tokens(train + val + test, tokenize_en, index=1),
         min_freq=2,
@@ -1577,7 +1584,7 @@ def create_dataloaders(
             pad_id=vocab_src.get_stoi()["<blank>"],
         )
 
-    train_iter, valid_iter, test_iter = datasets.Multi30k(
+    train_iter, valid_iter, test_iter = multi30k.Multi30k(
         language_pair=("de", "en")
     )
 
