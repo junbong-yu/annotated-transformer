@@ -97,6 +97,10 @@
 
 # %% id="NwClcbH6Tsp8"
 # # !pip install -r requirements.txt
+# ! wget https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.2.0/en_core_web_sm-3.2.0-py3-none-any.whl
+# ! pip install en_core_web_sm-3.2.0-py3-none-any.whl
+# ! wget https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-3.2.0/de_core_news_sm-3.2.0-py3-none-any.whl
+# ! pip install de_core_news_sm-3.2.0-py3-none-any.whl
 
 # %% id="NwClcbH6Tsp8"
 # # Uncomment for colab
