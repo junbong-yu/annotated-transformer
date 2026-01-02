@@ -104,6 +104,7 @@
 # ! pip install en_core_web_sm-3.2.0-py3-none-any.whl
 # ! wget https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-3.2.0/de_core_news_sm-3.2.0-py3-none-any.whl
 # ! pip install de_core_news_sm-3.2.0-py3-none-any.whl
+# ! rm *.whl*
 
 # %% id="NwClcbH6Tsp8"
 # # Uncomment for colab
@@ -142,10 +143,18 @@ from torchtext.datasets import multi30k
 # Set to False to skip notebook execution (e.g. for debugging)
 warnings.filterwarnings("ignore")
 RUN_EXAMPLES = True
+DEBUG = True  # Set to True to print shape information
 
 
-# %%
 # Some convenience helper functions used throughout the notebook
+
+def debug_print(name, tensor):
+    """Print tensor shape if DEBUG mode is enabled"""
+    if DEBUG:
+        if isinstance(tensor, torch.Tensor):
+            print(f"[DEBUG] {name}: {tensor.shape}")
+        else:
+            print(f"[DEBUG] {name}: {type(tensor)}")
 
 
 def is_interactive_notebook():
@@ -251,13 +260,26 @@ class EncoderDecoder(nn.Module):
 
     def forward(self, src, tgt, src_mask, tgt_mask):
         "Take in and process masked src and target sequences."
+        debug_print("EncoderDecoder Forward Input src", src)
+        debug_print("EncoderDecoder Forward Input tgt", tgt)
         return self.decode(self.encode(src, src_mask), src_mask, tgt, tgt_mask)
 
     def encode(self, src, src_mask):
-        return self.encoder(self.src_embed(src), src_mask)
+        debug_print("EncoderDecoder Encode Input", src)
+        src_embedded = self.src_embed(src)
+        debug_print("EncoderDecoder After src_embed", src_embedded)
+        encoded = self.encoder(src_embedded, src_mask)
+        debug_print("EncoderDecoder After encoder", encoded)
+        return encoded
 
     def decode(self, memory, src_mask, tgt, tgt_mask):
-        return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
+        debug_print("EncoderDecoder Decode Input tgt", tgt)
+        debug_print("EncoderDecoder Decode Input memory", memory)
+        tgt_embedded = self.tgt_embed(tgt)
+        debug_print("EncoderDecoder After tgt_embed", tgt_embedded)
+        decoded = self.decoder(tgt_embedded, memory, src_mask, tgt_mask)
+        debug_print("EncoderDecoder After decoder", decoded)
+        return decoded
 
 
 # %% id="NKGoH2RsTsqC"
@@ -269,7 +291,12 @@ class Generator(nn.Module):
         self.proj = nn.Linear(d_model, vocab)
 
     def forward(self, x):
-        return log_softmax(self.proj(x), dim=-1)
+        debug_print("Generator Input", x)
+        x = self.proj(x)
+        debug_print("Generator After Linear Projection", x)
+        x = log_softmax(x, dim=-1)
+        debug_print("Generator After LogSoftmax", x)
+        return x
 
 
 # %% [markdown] id="mOoEnF_jTsqC"
@@ -307,9 +334,13 @@ class Encoder(nn.Module):
 
     def forward(self, x, mask):
         "Pass the input (and mask) through each layer in turn."
-        for layer in self.layers:
+        debug_print("Encoder Input", x)
+        for i, layer in enumerate(self.layers):
             x = layer(x, mask)
-        return self.norm(x)
+            debug_print(f"Encoder Layer {i} Output", x)
+        x = self.norm(x)
+        debug_print("Encoder Norm Output", x)
+        return x
 
 
 # %% [markdown] id="GjAKgjGwTsqD"
@@ -330,9 +361,12 @@ class LayerNorm(nn.Module):
         self.eps = eps
 
     def forward(self, x):
+        debug_print("LayerNorm Input", x)
         mean = x.mean(-1, keepdim=True)
         std = x.std(-1, keepdim=True)
-        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
+        x = self.a_2 * (x - mean) / (std + self.eps) + self.b_2
+        debug_print("LayerNorm Output", x)
+        return x
 
 
 # %% [markdown] id="nXSJ3QYmTsqE"
@@ -362,7 +396,14 @@ class SublayerConnection(nn.Module):
 
     def forward(self, x, sublayer):
         "Apply residual connection to any sublayer with the same size."
-        return x + self.dropout(sublayer(self.norm(x)))
+        debug_print("SublayerConnection Input", x)
+        normalized = self.norm(x)
+        sublayer_out = sublayer(normalized)
+        debug_print("SublayerConnection Sublayer Output", sublayer_out)
+        dropped = self.dropout(sublayer_out)
+        x = x + dropped
+        debug_print("SublayerConnection Output (After Residual)", x)
+        return x
 
 
 # %% [markdown] id="ML6oDlEqTsqE"
@@ -384,8 +425,12 @@ class EncoderLayer(nn.Module):
 
     def forward(self, x, mask):
         "Follow Figure 1 (left) for connections."
+        debug_print("EncoderLayer Input", x)
         x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask))
-        return self.sublayer[1](x, self.feed_forward)
+        debug_print("EncoderLayer After Self-Attn", x)
+        x = self.sublayer[1](x, self.feed_forward)
+        debug_print("EncoderLayer After Feed-Forward", x)
+        return x
 
 
 # %% [markdown] id="7ecOQIhkTsqF"
@@ -404,9 +449,14 @@ class Decoder(nn.Module):
         self.norm = LayerNorm(layer.size)
 
     def forward(self, x, memory, src_mask, tgt_mask):
-        for layer in self.layers:
+        debug_print("Decoder Input", x)
+        debug_print("Decoder Memory", memory)
+        for i, layer in enumerate(self.layers):
             x = layer(x, memory, src_mask, tgt_mask)
-        return self.norm(x)
+            debug_print(f"Decoder Layer {i} Output", x)
+        x = self.norm(x)
+        debug_print("Decoder Norm Output", x)
+        return x
 
 
 # %% [markdown] id="dXlCB12pTsqF"
@@ -431,10 +481,15 @@ class DecoderLayer(nn.Module):
 
     def forward(self, x, memory, src_mask, tgt_mask):
         "Follow Figure 1 (right) for connections."
+        debug_print("DecoderLayer Input", x)
         m = memory
         x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask))
+        debug_print("DecoderLayer After Self-Attn", x)
         x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m, src_mask))
-        return self.sublayer[2](x, self.feed_forward)
+        debug_print("DecoderLayer After Src-Attn", x)
+        x = self.sublayer[2](x, self.feed_forward)
+        debug_print("DecoderLayer After Feed-Forward", x)
+        return x
 
 
 # %% [markdown] id="FZz5rLl4TsqF"
@@ -526,14 +581,28 @@ show_example(example_mask)
 # %% id="qsoVxS5yTsqG"
 def attention(query, key, value, mask=None, dropout=None):
     "Compute 'Scaled Dot Product Attention'"
+    debug_print("Attention Query", query)
+    debug_print("Attention Key", key)
+    debug_print("Attention Value", value)
+    
     d_k = query.size(-1)
     scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
+    debug_print("Attention Scores (Before Mask)", scores)
+    
     if mask is not None:
         scores = scores.masked_fill(mask == 0, -1e9)
+        debug_print("Attention Scores (After Mask)", scores)
+    
     p_attn = scores.softmax(dim=-1)
+    debug_print("Attention Softmax Output", p_attn)
+    
     if dropout is not None:
         p_attn = dropout(p_attn)
-    return torch.matmul(p_attn, value), p_attn
+        debug_print("Attention After Dropout", p_attn)
+    
+    output = torch.matmul(p_attn, value)
+    debug_print("Attention Output (Matmul with Value)", output)
+    return output, p_attn
 
 
 # %% [markdown] id="jUkpwu8kTsqG"
@@ -608,9 +677,13 @@ class MultiHeadedAttention(nn.Module):
 
     def forward(self, query, key, value, mask=None):
         "Implements Figure 2"
+        debug_print("MultiHeadedAttention Input Query", query)
+        
         if mask is not None:
             # Same mask applied to all h heads.
             mask = mask.unsqueeze(1)
+            debug_print("MultiHeadedAttention Mask (After Unsqueeze)", mask)
+        
         nbatches = query.size(0)
 
         # 1) Do all the linear projections in batch from d_model => h x d_k
@@ -618,11 +691,13 @@ class MultiHeadedAttention(nn.Module):
             lin(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
             for lin, x in zip(self.linears, (query, key, value))
         ]
+        debug_print("MultiHeadedAttention After Linear & Reshape Query", query)
 
         # 2) Apply attention on all the projected vectors in batch.
         x, self.attn = attention(
             query, key, value, mask=mask, dropout=self.dropout
         )
+        debug_print("MultiHeadedAttention After Attention", x)
 
         # 3) "Concat" using a view and apply a final linear.
         x = (
@@ -630,10 +705,14 @@ class MultiHeadedAttention(nn.Module):
             .contiguous()
             .view(nbatches, -1, self.h * self.d_k)
         )
+        debug_print("MultiHeadedAttention After Concat", x)
+        
         del query
         del key
         del value
-        return self.linears[-1](x)
+        x = self.linears[-1](x)
+        debug_print("MultiHeadedAttention After Final Linear", x)
+        return x
 
 
 # %% [markdown] id="EDRba3J3TsqH"
@@ -692,7 +771,16 @@ class PositionwiseFeedForward(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        return self.w_2(self.dropout(self.w_1(x).relu()))
+        debug_print("PositionwiseFeedForward Input", x)
+        x = self.w_1(x)
+        debug_print("PositionwiseFeedForward After w_1", x)
+        x = x.relu()
+        debug_print("PositionwiseFeedForward After ReLU", x)
+        x = self.dropout(x)
+        debug_print("PositionwiseFeedForward After Dropout", x)
+        x = self.w_2(x)
+        debug_print("PositionwiseFeedForward After w_2", x)
+        return x
 
 
 # %% [markdown] id="dR1YM520TsqH"
@@ -716,7 +804,10 @@ class Embeddings(nn.Module):
         self.d_model = d_model
 
     def forward(self, x):
-        return self.lut(x) * math.sqrt(self.d_model)
+        debug_print("Embeddings Input", x)
+        x = self.lut(x) * math.sqrt(self.d_model)
+        debug_print("Embeddings Output", x)
+        return x
 
 
 # %% [markdown] id="vOkdui-cTsqH"
@@ -772,8 +863,12 @@ class PositionalEncoding(nn.Module):
         self.register_buffer("pe", pe)
 
     def forward(self, x):
+        debug_print("PositionalEncoding Input", x)
         x = x + self.pe[:, : x.size(1)].requires_grad_(False)
-        return self.dropout(x)
+        debug_print("PositionalEncoding After Adding PE", x)
+        x = self.dropout(x)
+        debug_print("PositionalEncoding After Dropout", x)
+        return x
 
 
 # %% [markdown] id="EfHacTJLTsqH"
