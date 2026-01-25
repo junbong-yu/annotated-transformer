@@ -143,7 +143,8 @@ from torchtext.datasets import multi30k
 # Set to False to skip notebook execution (e.g. for debugging)
 warnings.filterwarnings("ignore")
 RUN_EXAMPLES = True  # Set to True for interactive/notebook execution
-DEBUG = True  # Set to True to print shape information
+DEBUG = False  # Set to True to print shape information
+DEBUG_GENERATOR = True  # Set to True to print Generator input/output dimensions
 
 
 # Some convenience helper functions used throughout the notebook
@@ -289,13 +290,24 @@ class Generator(nn.Module):
     def __init__(self, d_model, vocab):
         super(Generator, self).__init__()
         self.proj = nn.Linear(d_model, vocab)
+        self.d_model = d_model
+        self.vocab = vocab
 
     def forward(self, x):
-        debug_print("Generator Input", x)
+        if DEBUG_GENERATOR and isinstance(x, torch.Tensor):
+            batch_size = x.shape[0]
+            seq_len = x.shape[1] if len(x.shape) > 1 else 1
+            print(f"[Generator] Input Shape: ({batch_size}, {seq_len}, {self.d_model})")
+        
         x = self.proj(x)
-        debug_print("Generator After Linear Projection", x)
+        
+        if DEBUG_GENERATOR and isinstance(x, torch.Tensor):
+            batch_size = x.shape[0]
+            seq_len = x.shape[1] if len(x.shape) > 1 else 1
+            vocab_size = x.shape[2] if len(x.shape) > 2 else self.vocab
+            print(f"[Generator] Output Shape: ({batch_size}, {seq_len}, {vocab_size})")
+        
         x = log_softmax(x, dim=-1)
-        debug_print("Generator After LogSoftmax", x)
         return x
 
 
@@ -1096,6 +1108,38 @@ def run_epoch(
                 )
                 % (i, n_accum, loss / batch.ntokens, tokens / elapsed, lr)
             )
+            
+            # Print Generator predictions vs targets when DEBUG_GENERATOR is enabled
+            if DEBUG_GENERATOR:
+                try:
+                    # out shape: (batch_size, seq_len, vocab_size)
+                    pred_logits = out.argmax(dim=-1)  # Shape: (batch_size, seq_len)
+                    target_tokens = batch.tgt_y  # Shape: (batch_size, seq_len)
+
+                    # Try to get vocab from multiple sources
+                    vocab = None
+                    if 'vocab_tgt' in globals():
+                        vocab = vocab_tgt
+                    elif hasattr(batch, 'vocab_tgt'):
+                        vocab = batch.vocab_tgt
+
+                    if vocab is not None:
+                        itos = vocab.get_itos()
+                        num_samples = min(3, pred_logits.shape[0])
+                        print(f"\n[Generator Full Sentence Predictions]")
+                        for idx in range(num_samples):
+                            pred_indices = pred_logits[idx].cpu().numpy().tolist()
+                            target_indices = target_tokens[idx].cpu().numpy().tolist()
+                            pred_tokens = [itos[i] if 0 <= i < len(itos) else "<UNK>" for i in pred_indices]
+                            target_tokens_str = [itos[i] if 0 <= i < len(itos) else "<UNK>" for i in target_indices]
+                            pred_sentence = " ".join(pred_tokens)
+                            target_sentence = " ".join(target_tokens_str)
+                            print(f"Sample {idx}:")
+                            print(f"  [Predicted] {pred_sentence}")
+                            print(f"  [Target]    {target_sentence}\n")
+                except Exception as e:
+                    print(f"[Generator Debug Error] {e}\n")
+            
             start = time.time()
             tokens = 0
         del loss
