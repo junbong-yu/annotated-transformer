@@ -142,7 +142,7 @@ from torchtext.datasets import multi30k
 
 # Set to False to skip notebook execution (e.g. for debugging)
 warnings.filterwarnings("ignore")
-RUN_EXAMPLES = False  # Changed to False for non-interactive execution
+RUN_EXAMPLES = True  # Set to True for interactive/notebook execution
 DEBUG = True  # Set to True to print shape information
 
 
