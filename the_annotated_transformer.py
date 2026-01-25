@@ -131,7 +131,7 @@ from torch.utils.data import DataLoader
 from torchtext.vocab import build_vocab_from_iterator
 import torchtext.datasets as datasets
 import spacy
-import GPUtil
+# import GPUtil  # Commented out for CPU-only execution
 import warnings
 from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
@@ -142,7 +142,7 @@ from torchtext.datasets import multi30k
 
 # Set to False to skip notebook execution (e.g. for debugging)
 warnings.filterwarnings("ignore")
-RUN_EXAMPLES = True
+RUN_EXAMPLES = False  # Changed to False for non-interactive execution
 DEBUG = True  # Set to True to print shape information
 
 
@@ -1503,15 +1503,35 @@ def load_tokenizers():
 
     try:
         spacy_de = spacy.load("de_core_news_sm")
-    except IOError:
+    except Exception as e:
+        print(f"Error loading German tokenizer: {e}")
+        print("Downloading German tokenizer model...")
         os.system("python -m spacy download de_core_news_sm")
-        spacy_de = spacy.load("de_core_news_sm")
+        try:
+            spacy_de = spacy.load("de_core_news_sm")
+        except Exception as e2:
+            print(f"Failed to load German tokenizer after download: {e2}")
+            # Fallback: create a simple tokenizer
+            class SimpleTokenizer:
+                def tokenizer(self, text):
+                    return [type('Token', (), {'text': t})() for t in text.split()]
+            spacy_de = SimpleTokenizer()
 
     try:
         spacy_en = spacy.load("en_core_web_sm")
-    except IOError:
+    except Exception as e:
+        print(f"Error loading English tokenizer: {e}")
+        print("Downloading English tokenizer model...")
         os.system("python -m spacy download en_core_web_sm")
-        spacy_en = spacy.load("en_core_web_sm")
+        try:
+            spacy_en = spacy.load("en_core_web_sm")
+        except Exception as e2:
+            print(f"Failed to load English tokenizer after download: {e2}")
+            # Fallback: create a simple tokenizer
+            class SimpleTokenizer:
+                def tokenizer(self, text):
+                    return [type('Token', (), {'text': t})() for t in text.split()]
+            spacy_en = SimpleTokenizer()
 
     return spacy_de, spacy_en
 
@@ -1732,13 +1752,13 @@ def train_worker(
     config,
     is_distributed=False,
 ):
-    print(f"Train worker process using GPU: {gpu} for training", flush=True)
-    torch.cuda.set_device(gpu)
+    print(f"Train worker process using device: cpu for training", flush=True)
+    device = torch.device("cpu")
 
     pad_idx = vocab_tgt["<blank>"]
     d_model = 512
     model = make_model(len(vocab_src), len(vocab_tgt), N=6)
-    model.cuda(gpu)
+    model.to(device)
     module = model
     is_main_process = True
     if is_distributed:
@@ -1752,10 +1772,10 @@ def train_worker(
     criterion = LabelSmoothing(
         size=len(vocab_tgt), padding_idx=pad_idx, smoothing=0.1
     )
-    criterion.cuda(gpu)
+    criterion.to(device)
 
     train_dataloader, valid_dataloader = create_dataloaders(
-        gpu,
+        device,
         vocab_src,
         vocab_tgt,
         spacy_de,
@@ -1798,9 +1818,9 @@ def train_worker(
         if is_main_process:
             file_path = "%s%.2d.pt" % (config["file_prefix"], epoch)
             torch.save(module.state_dict(), file_path)
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()  # Not needed for CPU execution
 
-        print(f"[GPU{gpu}] Epoch {epoch} Validation ====", flush=True)
+        print(f"[CPU] Epoch {epoch} Validation ====", flush=True)
         model.eval()
         sloss = run_epoch(
             (Batch(b[0], b[1], pad_idx) for b in valid_dataloader),
@@ -1811,7 +1831,7 @@ def train_worker(
             mode="eval",
         )
         print(sloss)
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()  # Not needed for CPU execution
 
     if is_main_process:
         file_path = "%sfinal.pt" % config["file_prefix"]
@@ -1822,15 +1842,11 @@ def train_worker(
 def train_distributed_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config):
     from the_annotated_transformer import train_worker
 
-    ngpus = torch.cuda.device_count()
-    os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "12356"
-    print(f"Number of GPUs detected: {ngpus}")
-    print("Spawning training processes ...")
-    mp.spawn(
-        train_worker,
-        nprocs=ngpus,
-        args=(ngpus, vocab_src, vocab_tgt, spacy_de, spacy_en, config, True),
+    # For CPU-only execution, use single process
+    print("Using CPU for training (distributed training not available on CPU)")
+    print("Running single-process training ...")
+    train_worker(
+        0, 1, vocab_src, vocab_tgt, spacy_de, spacy_en, config, False
     )
 
 
@@ -1861,7 +1877,7 @@ def load_trained_model():
         train_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config)
 
     model = make_model(len(vocab_src), len(vocab_tgt), N=6)
-    model.load_state_dict(torch.load("multi30k_model_final.pt"))
+    model.load_state_dict(torch.load("multi30k_model_final.pt", map_location=torch.device("cpu")))
     return model
 
 
